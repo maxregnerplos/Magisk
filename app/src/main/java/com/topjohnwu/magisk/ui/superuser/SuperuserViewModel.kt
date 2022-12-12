@@ -101,6 +101,52 @@ class SuperuserViewModel(
         loading = false
     }
 
+    fun addPressed() {
+        SuperuserAddDialog().publish()
+    }
+
+    fun editPressed(item: PolicyRvItem) {
+        SuperuserEditDialog {
+            appName = item.appName
+            packageName = item.packageName
+            uid = item.item.uid
+            notification = item.item.notification
+            logging = item.item.logging
+            onSuccess = { updateState(it) }
+        }.publish()
+    }
+
+    fun updateState(policy: SuPolicy) {
+        viewModelScope.launch {
+            db.update(policy)
+            itemsPolicies.forEach {
+                if (it.item.uid == policy.uid) {
+                    it.item = policy
+                    it.notifyPropertyChanged(BR.item)
+                }
+            }
+            SnackbarEvent(R.string.su_snack_update).publish()
+        }
+    }
+
+    // ---
+
+    fun clearPressed() {
+        SuperuserRevokeDialog {
+            appName = AppContext.getString(R.string.superuser_policy_all)
+            onSuccess = { updateState() }
+        }.publish()
+    }
+
+    fun updateState() {
+        viewModelScope.launch {
+            db.deleteAll()
+            itemsPolicies.clear()
+            itemsHelpers.clear()
+            itemsHelpers.add(itemNoData)
+        }
+    }
+
     // ---
 
     fun deletePressed(item: PolicyRvItem) {
@@ -121,6 +167,20 @@ class SuperuserViewModel(
                 appName = item.title
                 onSuccess { updateState() }
             }.publish()
+        }
+    }
+
+    // ---
+
+    fun updateAccess(item: PolicyRvItem) {
+        viewModelScope.launch {
+            db.update(item.item)
+            val res = when (item.item.access) {
+                Policy.ALLOW -> R.string.su_snack_allow
+                Policy.DENY -> R.string.su_snack_deny
+                else -> R.string.su_snack_timeout
+            }
+            SnackbarEvent(res.asText(item.appName)).publish()
         }
     }
 
@@ -155,6 +215,7 @@ class SuperuserViewModel(
             SnackbarEvent(res.asText(item.appName)).publish()
         }
     }
+
 
     fun togglePolicy(item: PolicyRvItem, enable: Boolean) {
         fun updateState() {
