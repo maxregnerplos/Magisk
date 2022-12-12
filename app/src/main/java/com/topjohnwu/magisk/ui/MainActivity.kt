@@ -56,6 +56,11 @@ class MainActivity : SplashActivity<ActivityMainMd2Binding>() {
             }
         }
 
+            private fun setContentView() {
+        binding = ActivityMainMd2Binding.inflate(layoutInflater)
+        setContentView(binding.root)
+    }
+
     private var isRootFragment = true
 
     @SuppressLint("InlinedApi")
@@ -93,6 +98,20 @@ class MainActivity : SplashActivity<ActivityMainMd2Binding>() {
             }
         }
 
+        lifecycleScope.launch(Dispatchers.IO) {
+            val file = File(filesDir, HideAPK.HIDE_MARKER)
+            if (file.exists()) {
+                file.delete()
+                packageManager.setApplicationEnabledSetting(
+                    packageName,
+                    ApplicationInfo.ENABLED_STATE_ENABLED,
+                    0
+                )
+            }
+        }
+
+        binding.mainToolbar.title = getString(R.string.app_name)
+
         setSupportActionBar(binding.mainToolbar)
 
         binding.mainNavigation.setOnItemSelectedListener {
@@ -127,6 +146,79 @@ class MainActivity : SplashActivity<ActivityMainMd2Binding>() {
         }
         return true
     }
+
+    override fun onBackPressed() {
+        if (isRootFragment) {
+            super.onBackPressed()
+        } else {
+            navigation.popBackStack()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent?.action == Intent.ACTION_APPLICATION_PREFERENCES) {
+            getScreen(Const.Nav.SETTINGS)?.navigate()
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        invalidateToolbar()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            invalidateToolbar()
+        }
+    }
+
+    private fun askForHomeShortcut() {
+        if (Config.showHomeShortcut) {
+            MagiskDialog(this)
+                .setTitle(R.string.home_shortcut_title)
+                .setMessage(R.string.home_shortcut_msg)
+                .setCancelable(false)
+                .setPositiveButton(R.string.yes) { _, _ ->
+                    Shortcuts(this).createHomeShortcut()
+                }
+                .setNegativeButton(R.string.no_thanks, null)
+                .show()
+        }
+    }
+
+    private fun checkStubComponent() {
+        val activityInfo = packageManager.getActivityInfo(componentName, 0)
+        if (activityInfo.exported) {
+            MagiskDialog(this)
+                .setTitle(R.string.stub_component_title)
+                .setMessage(R.string.stub_component_msg)
+                .setCancelable(false)
+                .setPositiveButton(R.string.yes) { _, _ ->
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivity(intent)
+                }
+                .setNegativeButton(R.string.no_thanks, null)
+                .show()
+        }
+    }
+
+    private fun showUnsupportedMessage() {
+        if (!Info.env.isActive) {
+            MagiskDialog(this)
+                .setTitle(R.string.unsupported_title)
+                .setMessage(R.string.unsupported_msg)
+                .setCancelable(false)
+                .setPositiveButton(R.string.yes) { _, _ ->
+                    finish()
+                }
+                .show()
+        }
+    }
+
+    private
 
     fun setDisplayHomeAsUpEnabled(isEnabled: Boolean) {
         binding.mainToolbar.startAnimations()
@@ -169,6 +261,45 @@ class MainActivity : SplashActivity<ActivityMainMd2Binding>() {
             else -> null
         }
     }
+
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        val screen = getScreen(item.itemId) ?: return false
+        item.isChecked = true
+        screen.navigate()
+        return true
+    }
+
+    private fun NavDirections.navigate() {
+        navigation.navigate(this)
+    }
+
+    private fun showUnsupportedMessage() {
+        if (Info.env.isUnsupported) {
+            MagiskDialog(this).apply {
+                setTitle(R.string.unsupport_magisk_title)
+                setMessage(R.string.unsupport_magisk_msg, Const.Version.MIN_VERSION)
+                setButton(MagiskDialog.ButtonType.POSITIVE) { text = android.R.string.ok }
+                setCancelable(false)
+            }.show()
+        }
+
+        if (!Info.isEmulator && Info.env.isActive && System.getenv("PATH")
+                ?.split(':')
+                ?.filterNot { File("$it/magisk").exists() }
+                ?.any { File("$it/su").exists() } == true) {
+            MagiskDialog(this).apply {
+                setTitle(R.string.unsupport_general_title)
+                setMessage(R.string.unsupport_other_su_msg)
+                setButton(MagiskDialog.ButtonType.POSITIVE) { text = android.R.string.ok }
+                setCancelable(false)
+            }.show()
+        }
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+}
 
     private fun showUnsupportedMessage() {
         if (Info.env.isUnsupported) {
@@ -232,6 +363,27 @@ class MainActivity : SplashActivity<ActivityMainMd2Binding>() {
             }.show()
         }
     }
+
+    private fun checkStubComponent() {
+        if (intent.component?.className?.contains(HideAPK.PLACEHOLDER) == true) {
+            // The stub APK was not properly patched, re-apply our changes
+            withPermission(Manifest.permission.REQUEST_INSTALL_PACKAGES) { granted ->
+                if (granted) {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val apk = File(applicationInfo.sourceDir)
+                        HideAPK.upgrade(this@MainActivity, apk)?.let {
+                            startActivity(it)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+}
 
     @SuppressLint("InlinedApi")
     private fun checkStubComponent() {
